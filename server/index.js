@@ -10,9 +10,16 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-const BOMB_PLACE_TIME_MS = 10000;
-const PICK_TIME_MS = 8000;
-const DESCENT_TIME_MS = 4500;
+const BOMB_PLACE_TIME_MS = 7000;
+const PICK_TIME_MS = 6000;
+const DESCENT_TIME_MS = 3200;
+const COUNTDOWN_MS = 1500;
+const AI_MIN_DELAY_MS = 500;
+const AI_MAX_DELAY_MS = 1800;
+
+function aiDelay() {
+  return AI_MIN_DELAY_MS + Math.random() * (AI_MAX_DELAY_MS - AI_MIN_DELAY_MS);
+}
 
 /** @type {Map<string, Room>} */
 const rooms = new Map();
@@ -89,7 +96,7 @@ class Room {
 
     if (this.bombPlaceTimer) clearTimeout(this.bombPlaceTimer);
     if (placer.isAI) {
-      this.bombPlaceTimer = setTimeout(() => this.finalizeBombs(randomBombs()), 1200);
+      this.bombPlaceTimer = setTimeout(() => this.finalizeBombs(randomBombs()), aiDelay());
     } else {
       this.bombPlaceTimer = setTimeout(() => this.finalizeBombs(randomBombs()), BOMB_PLACE_TIME_MS);
     }
@@ -112,10 +119,24 @@ class Room {
 
     if (this.pickTimer) clearTimeout(this.pickTimer);
     this.pickTimer = setTimeout(() => this.resolvePicks(), PICK_TIME_MS);
+
+    if (this.vsAI) {
+      const ai = this.players.find((p) => p.isAI && p.alive);
+      if (ai) setTimeout(() => this.handlePick(ai.id, this.randomFreeLane()), aiDelay());
+    }
+  }
+
+  randomFreeLane() {
+    const taken = new Set(Object.values(this.picks));
+    const free = [];
+    for (let lane = 0; lane < this.board.lanes; lane++) if (!taken.has(lane)) free.push(lane);
+    if (free.length === 0) return Math.floor(Math.random() * this.board.lanes);
+    return free[Math.floor(Math.random() * free.length)];
   }
 
   handlePick(playerId, lane) {
     if (this.phase !== 'pick') return;
+    if (this.picks[playerId] !== undefined) return;
     const taken = new Set(Object.values(this.picks));
     if (taken.has(lane)) return; // lane already taken, ignore
     this.picks[playerId] = lane;
@@ -157,6 +178,12 @@ class Room {
     if (this.phase !== 'pick') return;
     if (this.vsAI) this.runAIPick();
     this.autoAssignMissingPicks();
+    this.phase = 'countdown';
+    this.broadcast('phase:countdown', { picks: this.picks, countdownMs: COUNTDOWN_MS });
+    setTimeout(() => this.startDescent(), COUNTDOWN_MS);
+  }
+
+  startDescent() {
     this.phase = 'descent';
 
     const results = this.players.filter((p) => p.alive).map((p) => {
@@ -178,7 +205,8 @@ class Room {
         }
       }
       player.alive = !died;
-      player.lastResult = { lane, finalLane: trace.finalLane, path: trace.path, hitBomb, died, shieldsLeft: player.shields, itemsCollected: trace.items.length };
+      const closeCall = !hitBomb && this.board.bombs.some((b) => Math.abs(b - trace.finalLane) === 1);
+      player.lastResult = { lane, finalLane: trace.finalLane, path: trace.path, hitBomb, died, closeCall, shieldsLeft: player.shields, itemsCollected: trace.items.length };
     });
 
     this.broadcast('round:descent', {
@@ -194,6 +222,7 @@ class Room {
         path: trace.path,
         hitBomb: this.board.bombs.includes(trace.finalLane),
         died: player.lastResult.died,
+        closeCall: player.lastResult.closeCall,
         shieldsLeft: player.shields,
       })),
       descentTimeMs: DESCENT_TIME_MS,

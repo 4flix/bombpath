@@ -41,7 +41,11 @@
         <div id="phaseLabel">레인을 선택하세요</div>
         <div id="timerLabel"></div>
       </div>
-      <canvas id="canvas" width="600" height="520"></canvas>
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="canvas" width="600" height="520"></canvas>
+        <div id="countdownOverlay" class="countdown-overlay hidden"></div>
+        <div id="popText" class="pop-text hidden"></div>
+      </div>
       <div id="players" class="players"></div>
     </section>
 
@@ -50,6 +54,8 @@
       <button id="btnBackToMenu">메뉴로</button>
     </section>
   </div>
+
+  <div id="flashOverlay"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="game.js"></script>

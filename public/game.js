@@ -8,6 +8,10 @@
   const resultSec = el('result');
   const canvas = el('canvas');
   const ctx = canvas.getContext('2d');
+  const canvasWrap = el('canvasWrap');
+  const countdownOverlay = el('countdownOverlay');
+  const popText = el('popText');
+  const flashOverlay = el('flashOverlay');
 
   let state = {
     code: null,
@@ -21,13 +25,94 @@
     bombCount: 5,
     selectedBombs: [],
     descentResults: null,
+    timelines: null,
     animStart: 0,
     animDuration: 0,
+    streaks: {},
   };
 
   function show(section) {
     [menu, waiting, gameSec, resultSec].forEach((s) => s.classList.add('hidden'));
     section.classList.remove('hidden');
+  }
+
+  // ---------- tiny WebAudio sound synth (no external assets needed) ----------
+  let audioCtx = null;
+  function ac() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  }
+  function beep({ freq = 440, dur = 0.12, type = 'sine', gain = 0.2, glideTo = null, delay = 0 }) {
+    try {
+      const ctxA = ac();
+      const osc = ctxA.createOscillator();
+      const g = ctxA.createGain();
+      osc.type = type;
+      const t0 = ctxA.currentTime + delay;
+      osc.frequency.setValueAtTime(freq, t0);
+      if (glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, t0 + dur);
+      g.gain.setValueAtTime(gain, t0);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      osc.connect(g).connect(ctxA.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.02);
+    } catch (e) { /* audio not available, ignore */ }
+  }
+  function sfxClick() { beep({ freq: 520, dur: 0.06, type: 'square', gain: 0.12 }); }
+  function sfxPlace() { beep({ freq: 300, dur: 0.08, type: 'triangle', gain: 0.15 }); }
+  function sfxTick() { beep({ freq: 880, dur: 0.05, type: 'square', gain: 0.08 }); }
+  function sfxCountdown() { beep({ freq: 440, dur: 0.15, type: 'square', gain: 0.18 }); }
+  function sfxGo() { beep({ freq: 660, dur: 0.25, type: 'square', gain: 0.22, glideTo: 990 }); }
+  function sfxExplosion() {
+    try {
+      const ctxA = ac();
+      const bufferSize = ctxA.sampleRate * 0.35;
+      const buffer = ctxA.createBuffer(1, bufferSize, ctxA.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+      const noise = ctxA.createBufferSource();
+      noise.buffer = buffer;
+      const g = ctxA.createGain();
+      g.gain.setValueAtTime(0.4, ctxA.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctxA.currentTime + 0.35);
+      const filter = ctxA.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1200, ctxA.currentTime);
+      noise.connect(filter).connect(g).connect(ctxA.destination);
+      noise.start();
+    } catch (e) { /* ignore */ }
+  }
+  function sfxSafe() { beep({ freq: 660, dur: 0.18, type: 'sine', gain: 0.2, glideTo: 990 }); }
+  function sfxShield() { beep({ freq: 380, dur: 0.2, type: 'sine', gain: 0.2, glideTo: 700 }); }
+  function sfxBounce() { beep({ freq: 500, dur: 0.1, type: 'triangle', gain: 0.15, glideTo: 300 }); }
+  function sfxWin() {
+    [523, 659, 784, 1046].forEach((f, i) => beep({ freq: f, dur: 0.3, type: 'square', gain: 0.18, delay: i * 0.12 }));
+  }
+  function sfxLose() {
+    [400, 320, 240].forEach((f, i) => beep({ freq: f, dur: 0.3, type: 'sawtooth', gain: 0.15, delay: i * 0.12 }));
+  }
+
+  function flash(kind) {
+    flashOverlay.className = '';
+    void flashOverlay.offsetWidth; // restart animation
+    flashOverlay.className = 'flash-' + kind;
+  }
+
+  function shakeScreen() {
+    canvasWrap.classList.remove('shake');
+    void canvasWrap.offsetWidth;
+    canvasWrap.classList.add('shake');
+  }
+
+  function showPop(text, color) {
+    popText.textContent = text;
+    popText.style.color = color || '#fff';
+    popText.classList.remove('hidden');
+    void popText.offsetWidth;
+    popText.classList.remove('hidden');
+    popText.style.animation = 'none';
+    void popText.offsetWidth;
+    popText.style.animation = '';
   }
 
   el('btnVsAI').addEventListener('click', () => {
@@ -82,6 +167,7 @@
     state.selectedBombs = [];
     state.players = players;
     state.descentResults = null;
+    countdownOverlay.classList.add('hidden');
     el('roundLabel').textContent = round;
     show(gameSec);
 
@@ -107,16 +193,46 @@
   function startPhaseTimer(ms) {
     clearInterval(phaseTimerInterval);
     const end = Date.now() + ms;
+    let tickedUrgent = false;
     phaseTimerInterval = setInterval(() => {
       const left = Math.max(0, end - Date.now());
-      el('timerLabel').textContent = (left / 1000).toFixed(1) + 's';
+      const label = el('timerLabel');
+      label.textContent = (left / 1000).toFixed(1) + 's';
+      if (left <= 3000) {
+        label.classList.add('urgent');
+        if (!tickedUrgent) { tickedUrgent = true; }
+        if (Math.floor(left / 300) !== Math.floor((left + 100) / 300)) sfxTick();
+      } else {
+        label.classList.remove('urgent');
+      }
       if (left <= 0) clearInterval(phaseTimerInterval);
     }, 100);
   }
 
   socket.on('pick:update', ({ playerId, lane }) => {
     state.picks[playerId] = lane;
+    if (playerId !== state.myId) sfxClick();
     drawBoard();
+  });
+
+  socket.on('phase:countdown', ({ picks, countdownMs }) => {
+    clearInterval(phaseTimerInterval);
+    state.phase = 'countdown';
+    state.picks = picks;
+    el('timerLabel').textContent = '';
+    el('phaseLabel').textContent = '곧 하강합니다...';
+    drawBoard();
+
+    const steps = ['3', '2', '1', 'GO!'];
+    const stepMs = countdownMs / steps.length;
+    countdownOverlay.classList.remove('hidden');
+    steps.forEach((label, i) => {
+      setTimeout(() => {
+        countdownOverlay.innerHTML = `<span>${label}</span>`;
+        if (label === 'GO!') sfxGo(); else sfxCountdown();
+      }, i * stepMs);
+    });
+    setTimeout(() => countdownOverlay.classList.add('hidden'), countdownMs);
   });
 
   socket.on('round:descent', ({ picks, rungs, bombs, items, bounces, results, descentTimeMs }) => {
@@ -128,8 +244,11 @@
     state.board.items = items;
     state.board.bounces = bounces;
     state.descentResults = results;
+    state.timelines = {};
+    results.forEach((r) => { state.timelines[r.playerId] = buildTimeline(r.path, state.board); });
     state.animStart = performance.now();
     state.animDuration = descentTimeMs;
+    descentFinishedHandled = false;
     el('phaseLabel').textContent = '하강 중...';
     el('timerLabel').textContent = '';
     requestAnimationFrame(animateDescent);
@@ -142,8 +261,11 @@
       el('resultTitle').textContent = '무승부';
     } else if (winner.id === state.myId) {
       el('resultTitle').textContent = '🏆 승리했습니다!';
+      sfxWin();
+      flash('gold');
     } else {
       el('resultTitle').textContent = `${winner.isAI ? 'AI' : winner.name}가 승리했습니다`;
+      sfxLose();
     }
   });
 
@@ -153,7 +275,10 @@
       const pickLane = state.picks[p.id];
       const status = p.alive ? '생존' : '탈락';
       const placerTag = p.id === state.placerId ? ' 💣배치' : '';
-      return `<div>${p.name}${p.isAI ? ' (AI)' : ''} - ${status}${placerTag}${pickLane !== undefined ? ` [레인 ${pickLane + 1}]` : ''}</div>`;
+      const streak = state.streaks[p.id] || 0;
+      const streakTag = streak >= 2 ? ` <span class="streak">🔥x${streak}</span>` : '';
+      const cls = p.alive ? '' : 'dead';
+      return `<div class="${cls}">${p.name}${p.isAI ? ' (AI)' : ''} - ${status}${placerTag}${pickLane !== undefined ? ` [레인 ${pickLane + 1}]` : ''}${streakTag}</div>`;
     }).join('');
   }
 
@@ -168,6 +293,47 @@
     const marginBottom = 60;
     const h = canvas.height - marginTop - marginBottom;
     return marginTop + (h / rows) * (row + 1);
+  }
+
+  // Build a right-angle movement timeline from a per-row path: at each row
+  // where the lane changes, the player drops straight down to that row first,
+  // then slides sideways along the rung — never diagonally.
+  function buildTimeline(path, board) {
+    const steps = path.length - 1;
+    const timeline = [];
+    let cursor = { x: laneX(path[0].lane, board.lanes), y: rowY(path[0].row, board.rows) };
+    for (let i = 1; i < path.length; i++) {
+      const t0 = (i - 1) / steps;
+      const t1 = i / steps;
+      const prevLane = path[i - 1].lane;
+      const curLane = path[i].lane;
+      const y = rowY(path[i].row, board.rows);
+      const vertTarget = { x: laneX(prevLane, board.lanes), y };
+      if (curLane === prevLane) {
+        timeline.push({ t0, t1, from: cursor, to: vertTarget });
+        cursor = vertTarget;
+      } else {
+        const mid = t0 + (t1 - t0) * 0.5;
+        timeline.push({ t0, t1: mid, from: cursor, to: vertTarget });
+        const horizTarget = { x: laneX(curLane, board.lanes), y };
+        timeline.push({ t0: mid, t1, from: vertTarget, to: horizTarget });
+        cursor = horizTarget;
+      }
+    }
+    return timeline;
+  }
+
+  function positionAt(timeline, t) {
+    let seg = timeline[timeline.length - 1];
+    for (const s of timeline) {
+      if (t <= s.t1 || s === timeline[timeline.length - 1]) { seg = s; break; }
+    }
+    const span = seg.t1 - seg.t0 || 1;
+    const frac = Math.max(0, Math.min(1, (t - seg.t0) / span));
+    return {
+      x: seg.from.x + (seg.to.x - seg.from.x) * frac,
+      y: seg.from.y + (seg.to.y - seg.from.y) * frac,
+    };
   }
 
   function drawBoard() {
@@ -312,6 +478,7 @@
         state.selectedBombs.splice(idx, 1);
       } else if (state.selectedBombs.length < state.bombCount) {
         state.selectedBombs.push(closest);
+        sfxPlace();
       }
       drawBoard();
       if (state.selectedBombs.length === state.bombCount) {
@@ -335,49 +502,41 @@
       if (takenLanes.has(closest)) return;
       state.myPick = closest;
       state.picks[state.myId] = closest;
+      sfxClick();
       socket.emit('pick:lane', { code: state.code, lane: closest });
       drawBoard();
     }
   });
 
   function animateDescent(now) {
-    const board = state.board;
     const t = Math.min(1, (now - state.animStart) / state.animDuration);
     drawBoard();
 
     state.descentResults.forEach((r) => {
-      const path = r.path; // [{row:-1,lane}, {row:0,lane}, ...]
-      const idxFloat = t * (path.length - 1);
-      const idx = Math.floor(idxFloat);
-      const frac = idxFloat - idx;
+      const timeline = state.timelines[r.playerId];
       const mine = r.playerId === state.myId;
       const color = mine ? '#5cc8ff' : '#ff9f5c';
+      const pos = positionAt(timeline, t);
 
-      // trail: the path already walked, up to the current interpolated point
+      // trail: every fully-walked segment, plus the partial current one
       ctx.strokeStyle = color;
       ctx.globalAlpha = 0.55;
       ctx.lineWidth = 4;
       ctx.beginPath();
-      for (let i = 0; i <= idx; i++) {
-        const px = laneX(path[i].lane, board.lanes);
-        const py = rowY(path[i].row, board.rows);
-        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-      }
-      const a = path[idx];
-      const b = path[Math.min(idx + 1, path.length - 1)];
-      const ax = laneX(a.lane, board.lanes);
-      const ay = rowY(a.row, board.rows);
-      const bx = laneX(b.lane, board.lanes);
-      const by = rowY(b.row, board.rows);
-      const x = ax + (bx - ax) * frac;
-      const y = ay + (by - ay) * frac;
-      ctx.lineTo(x, y);
+      ctx.moveTo(timeline[0].from.x, timeline[0].from.y);
+      timeline.forEach((seg) => {
+        if (t >= seg.t1) {
+          ctx.lineTo(seg.to.x, seg.to.y);
+        } else if (t > seg.t0) {
+          ctx.lineTo(pos.x, pos.y);
+        }
+      });
       ctx.stroke();
       ctx.globalAlpha = 1;
 
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(x, y, 10, 0, Math.PI * 2);
+      ctx.arc(pos.x, pos.y, 10, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2;
@@ -387,11 +546,55 @@
     if (t < 1) {
       requestAnimationFrame(animateDescent);
     } else {
-      state.descentResults.forEach((r) => {
-        if (r.died) {
-          el('phaseLabel').textContent = '결과 확인 중...';
-        }
-      });
+      onDescentFinished();
     }
+  }
+
+  let descentFinishedHandled = false;
+
+  function onDescentFinished() {
+    if (descentFinishedHandled) return;
+    descentFinishedHandled = true;
+
+    const myResult = state.descentResults.find((r) => r.playerId === state.myId);
+    let anyDied = false;
+    let anyShieldBlock = false;
+    let anyCloseCall = false;
+
+    state.descentResults.forEach((r) => {
+      if (r.died) anyDied = true;
+      if (r.hitBomb && !r.died) anyShieldBlock = true;
+      if (r.closeCall) anyCloseCall = true;
+      state.streaks[r.playerId] = r.died ? 0 : (state.streaks[r.playerId] || 0) + 1;
+    });
+
+    if (myResult) {
+      if (myResult.died) {
+        flash('red');
+        shakeScreen();
+        sfxExplosion();
+        showPop('💥 탈락!', '#ff5c5c');
+      } else if (myResult.hitBomb) {
+        flash('gold');
+        sfxShield();
+        showPop('🛡️ 실드로 방어!', '#ffd166');
+      } else if (myResult.closeCall) {
+        sfxSafe();
+        showPop('😅 아슬아슬!', '#ffd166');
+      } else {
+        sfxSafe();
+        showPop('✅ 생존!', '#4ee1a0');
+      }
+    } else if (anyDied) {
+      shakeScreen();
+      sfxExplosion();
+    } else if (anyShieldBlock) {
+      sfxShield();
+    } else if (anyCloseCall) {
+      sfxSafe();
+    }
+
+    el('phaseLabel').textContent = '결과 확인 중...';
+    renderPlayers();
   }
 })();
