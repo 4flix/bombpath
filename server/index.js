@@ -2,7 +2,7 @@ const path = require('path');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { generateBoard, tracePath, LANES } = require('./ladder');
+const { generateBoard, tracePath, randomBombs, LANES, BOMB_COUNT } = require('./ladder');
 
 const app = express();
 const server = http.createServer(app);
@@ -10,6 +10,7 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+const BOMB_PLACE_TIME_MS = 10000;
 const PICK_TIME_MS = 8000;
 const DESCENT_TIME_MS = 4500;
 
@@ -35,6 +36,8 @@ class Room {
     this.board = null;
     this.picks = {};
     this.pickTimer = null;
+    this.bombPlaceTimer = null;
+    this.placerId = null;
   }
 
   broadcast(event, payload) {
@@ -66,15 +69,46 @@ class Room {
 
   startRound() {
     this.round += 1;
-    this.phase = 'pick';
+    this.phase = 'bombPlace';
     this.picks = {};
     this.board = generateBoard();
+
+    const alivePlayers = this.players.filter((p) => p.alive);
+    const placer = alivePlayers[(this.round - 1) % alivePlayers.length];
+    this.placerId = placer.id;
+
     this.broadcast('round:start', {
       round: this.round,
-      board: { lanes: this.board.lanes, rows: this.board.rows, rungs: this.board.rungs },
-      pickTimeMs: PICK_TIME_MS,
+      board: { lanes: this.board.lanes, rows: this.board.rows },
+      phase: 'bombPlace',
+      placerId: this.placerId,
+      bombCount: BOMB_COUNT,
+      bombPlaceTimeMs: BOMB_PLACE_TIME_MS,
       players: this.publicState().players,
     });
+
+    if (this.bombPlaceTimer) clearTimeout(this.bombPlaceTimer);
+    if (placer.isAI) {
+      this.bombPlaceTimer = setTimeout(() => this.finalizeBombs(randomBombs()), 1200);
+    } else {
+      this.bombPlaceTimer = setTimeout(() => this.finalizeBombs(randomBombs()), BOMB_PLACE_TIME_MS);
+    }
+  }
+
+  handleBombPlace(playerId, lanes) {
+    if (this.phase !== 'bombPlace' || playerId !== this.placerId) return;
+    if (!Array.isArray(lanes)) return;
+    const unique = Array.from(new Set(lanes)).filter((l) => Number.isInteger(l) && l >= 0 && l < this.board.lanes);
+    if (unique.length !== BOMB_COUNT) return;
+    this.finalizeBombs(unique.sort((a, b) => a - b));
+  }
+
+  finalizeBombs(bombs) {
+    if (this.phase !== 'bombPlace') return;
+    clearTimeout(this.bombPlaceTimer);
+    this.board.bombs = bombs;
+    this.phase = 'pick';
+    this.broadcast('phase:pick', { pickTimeMs: PICK_TIME_MS });
 
     if (this.pickTimer) clearTimeout(this.pickTimer);
     this.pickTimer = setTimeout(() => this.resolvePicks(), PICK_TIME_MS);
@@ -149,8 +183,10 @@ class Room {
 
     this.broadcast('round:descent', {
       picks: this.picks,
+      rungs: this.board.rungs,
       bombs: this.board.bombs,
       items: this.board.items,
+      bounces: this.board.bounces,
       results: results.map(({ player, trace }) => ({
         playerId: player.id,
         lane: this.picks[player.id],
@@ -216,6 +252,12 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('bomb:place', ({ code, lanes }) => {
+    const room = rooms.get(code);
+    if (!room) return;
+    room.handleBombPlace(socket.id, lanes);
+  });
+
   socket.on('pick:lane', ({ code, lane }) => {
     const room = rooms.get(code);
     if (!room) return;
@@ -232,6 +274,7 @@ io.on('connection', (socket) => {
         if (aliveHumans.length === 0 && room.phase !== 'over') {
           room.phase = 'over';
           if (room.pickTimer) clearTimeout(room.pickTimer);
+          if (room.bombPlaceTimer) clearTimeout(room.bombPlaceTimer);
           rooms.delete(code);
         }
       }

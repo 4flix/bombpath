@@ -2,6 +2,7 @@ const LANES = 6;
 const ROWS = 14;
 const BOMB_COUNT = 5;
 const ITEM_COUNT = 2;
+const BOUNCE_COUNT = 2;
 
 function randInt(max) {
   return Math.floor(Math.random() * max);
@@ -28,12 +29,14 @@ function generateRungs() {
   return rungs;
 }
 
-function generateBoard() {
-  const rungs = generateRungs();
-
+function randomBombs() {
   const bottomIndices = Array.from({ length: LANES }, (_, i) => i);
   shuffle(bottomIndices);
-  const bombs = bottomIndices.slice(0, BOMB_COUNT).sort((a, b) => a - b);
+  return bottomIndices.slice(0, BOMB_COUNT).sort((a, b) => a - b);
+}
+
+function generateBoard() {
+  const rungs = generateRungs();
 
   // items placed on random existing rungs (row, connection index)
   const rungSlots = [];
@@ -45,7 +48,24 @@ function generateBoard() {
   shuffle(rungSlots);
   const items = rungSlots.slice(0, Math.min(ITEM_COUNT, rungSlots.length));
 
-  return { lanes: LANES, rows: ROWS, rungs, bombs, items };
+  // bounce pads sit on a vertical lane segment (not a rung). A player
+  // travelling straight through that row on that lane gets forcibly pushed
+  // sideways by `dir`, overriding whatever the rung at that row would do.
+  const bouncePool = [];
+  for (let r = 1; r < ROWS - 1; r++) {
+    for (let lane = 0; lane < LANES; lane++) {
+      bouncePool.push({ row: r, lane });
+    }
+  }
+  shuffle(bouncePool);
+  const bounces = bouncePool.slice(0, Math.min(BOUNCE_COUNT, bouncePool.length)).map((b) => ({
+    ...b,
+    dir: b.lane === 0 ? 1 : b.lane === LANES - 1 ? -1 : Math.random() < 0.5 ? -1 : 1,
+  }));
+
+  // bombs start empty; they are filled in either by a player's placement or
+  // by randomBombs() as a fallback (see server/index.js bomb-placement phase).
+  return { lanes: LANES, rows: ROWS, rungs, bombs: [], items, bounces };
 }
 
 function shuffle(arr) {
@@ -62,12 +82,20 @@ function tracePath(board, startLane) {
   let lane = startLane;
   const path = [{ row: -1, lane }];
   const collectedItems = [];
+  const hitBounces = [];
   for (let r = 0; r < board.rows; r++) {
-    const row = board.rungs[r];
-    if (lane > 0 && row[lane - 1]) {
-      lane -= 1;
-    } else if (lane < board.lanes - 1 && row[lane]) {
-      lane += 1;
+    const enteringLane = lane;
+    const bounce = (board.bounces || []).find((b) => b.row === r && b.lane === enteringLane);
+    if (bounce) {
+      lane = Math.min(board.lanes - 1, Math.max(0, enteringLane + bounce.dir));
+      hitBounces.push(bounce);
+    } else {
+      const row = board.rungs[r];
+      if (lane > 0 && row[lane - 1]) {
+        lane -= 1;
+      } else if (lane < board.lanes - 1 && row[lane]) {
+        lane += 1;
+      }
     }
     path.push({ row: r, lane });
   }
@@ -81,7 +109,7 @@ function tracePath(board, startLane) {
       collectedItems.push(it);
     }
   });
-  return { finalLane: lane, items: collectedItems, path };
+  return { finalLane: lane, items: collectedItems, bounces: hitBounces, path };
 }
 
-module.exports = { generateBoard, tracePath, LANES, ROWS, BOMB_COUNT, ITEM_COUNT };
+module.exports = { generateBoard, tracePath, randomBombs, LANES, ROWS, BOMB_COUNT, ITEM_COUNT, BOUNCE_COUNT };
