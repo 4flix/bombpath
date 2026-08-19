@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BombPath</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>💣 BombPath</h1>
+      <p class="tagline">사다리 위에 숨겨진 폭탄을 피해 마지막까지 살아남으세요</p>
+    </header>
+
+    <section id="menu" class="panel">
+      <div class="menu-row">
+        <input id="nameInput" type="text" placeholder="닉네임" maxlength="12" />
+      </div>
+      <div class="menu-row">
+        <button id="btnVsAI">🤖 AI와 대결</button>
+      </div>
+      <div class="menu-row">
+        <button id="btnCreateRoom">🚪 방 만들기 (1v1)</button>
+      </div>
+      <div class="menu-row">
+        <input id="joinCodeInput" type="text" placeholder="방 코드 입력" maxlength="4" style="text-transform:uppercase" />
+        <button id="btnJoinRoom">참가</button>
+      </div>
+      <p id="menuMsg" class="msg"></p>
+    </section>
+
+    <section id="waiting" class="panel hidden">
+      <p>방 코드: <span id="roomCodeLabel"></span></p>
+      <p>상대를 기다리는 중...</p>
+    </section>
+
+    <section id="game" class="panel hidden">
+      <div class="hud">
+        <div>라운드 <span id="roundLabel">1</span></div>
+        <div id="phaseLabel">레인을 선택하세요</div>
+        <div id="timerLabel"></div>
+      </div>
+      <canvas id="canvas" width="600" height="520"></canvas>
+      <div id="players" class="players"></div>
+    </section>
+
+    <section id="result" class="panel hidden">
+      <h2 id="resultTitle"></h2>
+      <button id="btnBackToMenu">메뉴로</button>
+    </section>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
