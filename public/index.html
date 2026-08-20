@@ -3,59 +3,57 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>BombPath</title>
+<title>CarRoyale</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="app">
-    <header>
-      <h1>💣 BombPath</h1>
-      <p class="tagline">사다리 위에 숨겨진 폭탄을 피해 마지막까지 살아남으세요</p>
-    </header>
-
-    <section id="menu" class="panel">
-      <div class="menu-row">
-        <input id="nameInput" type="text" placeholder="닉네임" maxlength="12" />
-      </div>
-      <div class="menu-row">
-        <button id="btnVsAI">🤖 AI와 대결</button>
-      </div>
-      <div class="menu-row">
-        <button id="btnCreateRoom">🚪 방 만들기 (1v1)</button>
-      </div>
-      <div class="menu-row">
-        <input id="joinCodeInput" type="text" placeholder="방 코드 입력" maxlength="4" style="text-transform:uppercase" />
-        <button id="btnJoinRoom">참가</button>
-      </div>
+  <div id="menu" class="screen">
+    <div class="menu-card">
+      <h1>🚗 CarRoyale</h1>
+      <p class="tagline">10명이 낙하 → 자동차를 선점하고 → 자기장을 피해 마지막까지 살아남으세요</p>
+      <input id="nameInput" type="text" placeholder="닉네임" maxlength="12" />
+      <button id="btnJoin">빠른 시작</button>
       <p id="menuMsg" class="msg"></p>
-    </section>
-
-    <section id="waiting" class="panel hidden">
-      <p>방 코드: <span id="roomCodeLabel"></span></p>
-      <p>상대를 기다리는 중...</p>
-    </section>
-
-    <section id="game" class="panel hidden">
-      <div class="hud">
-        <div>라운드 <span id="roundLabel">1</span></div>
-        <div id="phaseLabel">레인을 선택하세요</div>
-        <div id="timerLabel"></div>
-      </div>
-      <div class="canvas-wrap" id="canvasWrap">
-        <canvas id="canvas" width="600" height="520"></canvas>
-        <div id="countdownOverlay" class="countdown-overlay hidden"></div>
-        <div id="popText" class="pop-text hidden"></div>
-      </div>
-      <div id="players" class="players"></div>
-    </section>
-
-    <section id="result" class="panel hidden">
-      <h2 id="resultTitle"></h2>
-      <button id="btnBackToMenu">메뉴로</button>
-    </section>
+    </div>
   </div>
 
-  <div id="flashOverlay"></div>
+  <div id="lobby" class="screen hidden">
+    <div class="menu-card">
+      <h2>대기실</h2>
+      <p><span id="lobbyCount">0</span> / <span id="lobbyMax">10</span> 명</p>
+      <p>시작까지 <span id="lobbyTimer">60</span>초</p>
+      <ul id="lobbyList"></ul>
+    </div>
+  </div>
+
+  <div id="game" class="screen hidden">
+    <canvas id="canvas"></canvas>
+
+    <div id="hud">
+      <div id="hpBarWrap"><div id="hpBar"></div><span id="hpText"></span></div>
+      <div id="statusText"></div>
+    </div>
+
+    <div id="feed"></div>
+
+    <div id="dropOverlay" class="overlay hidden">
+      <div class="drop-text">낙하 중...</div>
+    </div>
+
+    <div id="minimapWrap"><canvas id="minimap" width="140" height="140"></canvas></div>
+
+    <div id="joystickBase">
+      <div id="joystickKnob"></div>
+    </div>
+  </div>
+
+  <div id="result" class="screen hidden">
+    <div class="menu-card">
+      <h2 id="resultTitle"></h2>
+      <ol id="standingsList"></ol>
+      <button id="btnBackToMenu">다시 하기</button>
+    </div>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="game.js"></script>
