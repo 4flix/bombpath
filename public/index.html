@@ -14,6 +14,25 @@
       <input id="nameInput" type="text" placeholder="닉네임" maxlength="12" />
       <button id="btnJoin">빠른 시작</button>
       <p id="menuMsg" class="msg"></p>
+
+      <div class="howto">
+        <h3>게임 방법</h3>
+        <ol>
+          <li>대기실에서 최대 10명이 모이면(또는 1분 뒤) 매치가 시작돼요.</li>
+          <li>지도 위 랜덤한 곳에 도보로 낙하해요. 도보 상태는 매우 약하니 서둘러야 해요.</li>
+          <li>지도에 흩어진 <b>자동차</b>에 가까이 다가가면 <b>자동으로 탑승</b>해요.</li>
+          <li>총·무기는 없어요. 상대 차와 <b>부딪혀서(램밍)</b> 데미지를 주고 받아요.</li>
+          <li>시간이 지나면 <b>자기장</b>이 좁아져요. 장 밖에 있으면 계속 피해를 입으니 안쪽으로 이동하세요.</li>
+          <li>마지막까지 살아남으면 우승!</li>
+        </ol>
+        <h3>조작</h3>
+        <p>PC: <b>W A S D</b> 또는 방향키 (전진 · 후진 · 좌우 회전)<br/>모바일: 화면 좌하단 <b>가상 조이스틱</b>을 드래그</p>
+        <h3>차량 타입</h3>
+        <p><span class="dot" style="background:#4fd1ff"></span>스피드카: 빠르지만 약함
+        &nbsp; <span class="dot" style="background:#ff5c5c"></span>파워카: 한 방이 강함
+        &nbsp; <span class="dot" style="background:#7CFC98"></span>탱크카: 맷집이 좋음
+        &nbsp; <span class="dot" style="background:#ffd166"></span>밸런스카: 무난함</p>
+      </div>
     </div>
   </div>
 
@@ -38,6 +57,11 @@
 
     <div id="dropOverlay" class="overlay hidden">
       <div class="drop-text">낙하 중...</div>
+      <div class="drop-sub">가까운 자동차로 달려가서 자동으로 탑승하세요</div>
+    </div>
+
+    <div id="controlHint">
+      <b>WASD</b>/방향키 또는 좌하단 조이스틱으로 이동 · 자동차에 닿으면 자동 탑승 · <b>부딪혀서</b> 상대를 제거하세요
     </div>
 
     <div id="minimapWrap"><canvas id="minimap" width="140" height="140"></canvas></div>
