@@ -18,6 +18,9 @@ const TILE_SPEED = {
 const MAX_PLAYERS = 10;
 const MIN_PLAYERS_TO_START = 2;
 const LOBBY_WAIT_MS = Number(process.env.LOBBY_WAIT_MS) || 60000;
+// if nobody else has joined by this many ms before the lobby closes, fill
+// the match with one AI opponent so a lone player isn't left standing around
+const AI_FILL_BEFORE_END_MS = 10000;
 
 // ---- match phases ----------------------------------------------------------
 const DROP_DURATION_MS = 2200;
@@ -65,7 +68,7 @@ const ZONE_DAMAGE_BASE = 3.5; // HP/sec outside the circle, scales with phase in
 module.exports = {
   CELL, COLS, ROWS, WORLD_W, WORLD_H,
   TILE, TILE_SPEED,
-  MAX_PLAYERS, MIN_PLAYERS_TO_START, LOBBY_WAIT_MS,
+  MAX_PLAYERS, MIN_PLAYERS_TO_START, LOBBY_WAIT_MS, AI_FILL_BEFORE_END_MS,
   DROP_DURATION_MS, TICK_MS,
   CAR_TYPES, CAR_TYPE_KEYS, CAR_RADIUS, PED_RADIUS, PED_SPEED, PED_HP, PICKUP_RADIUS,
   FRICTION, MIN_HIT_SPEED, DAMAGE_K, HIT_COOLDOWN_MS, RESTITUTION,

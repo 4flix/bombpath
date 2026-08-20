@@ -3,7 +3,7 @@ const {
   CAR_TYPES, CAR_TYPE_KEYS, CAR_RADIUS, PED_RADIUS, PED_SPEED, PED_HP, PICKUP_RADIUS,
   FRICTION, MIN_HIT_SPEED, DAMAGE_K, HIT_COOLDOWN_MS, RESTITUTION,
   ZONE_PHASES, ZONE_MIN_RADIUS, ZONE_DAMAGE_BASE,
-  MAX_PLAYERS, MIN_PLAYERS_TO_START, LOBBY_WAIT_MS,
+  MAX_PLAYERS, MIN_PLAYERS_TO_START, LOBBY_WAIT_MS, AI_FILL_BEFORE_END_MS,
 } = require('./constants');
 const { generateTerrain, tileAt, isBlocked, randomOpenPosition } = require('./terrain');
 const { TILE_SPEED } = require('./constants');
@@ -49,9 +49,38 @@ class Match {
     if (this.phase === 'lobby' && this.players.size === 1) {
       this.lobbyDeadline = Date.now() + LOBBY_WAIT_MS;
       this.lobbyTimer = setTimeout(() => this.tryStart(true), LOBBY_WAIT_MS);
+      const fillDelay = Math.max(0, LOBBY_WAIT_MS - AI_FILL_BEFORE_END_MS);
+      this.aiFillTimer = setTimeout(() => {
+        if (this.phase === 'lobby' && this.players.size === 1) this.addAI();
+      }, fillDelay);
     }
     this.broadcastLobby();
     if (this.players.size >= MAX_PLAYERS) this.tryStart(true);
+    return player;
+  }
+
+  addAI() {
+    const id = 'ai-' + Math.random().toString(36).slice(2, 8);
+    const names = ['드리프트킹', '로드러너', '터보', '스카이라인', '나이트라이더'];
+    const player = {
+      id,
+      socket: null,
+      isAI: true,
+      name: names[Math.floor(Math.random() * names.length)],
+      alive: true,
+      inCar: false,
+      carId: null,
+      x: 0, y: 0, angle: 0, vx: 0, vy: 0,
+      hp: PED_HP,
+      maxHp: PED_HP,
+      kills: 0,
+      input: { up: false, down: false, left: false, right: false },
+      placement: null,
+      aiRetargetAt: 0,
+      aiTarget: null,
+    };
+    this.players.set(id, player);
+    this.broadcastLobby();
     return player;
   }
 
@@ -80,6 +109,7 @@ class Match {
   tryStart(force) {
     if (this.phase !== 'lobby') return;
     if (this.lobbyTimer) clearTimeout(this.lobbyTimer);
+    if (this.aiFillTimer) clearTimeout(this.aiFillTimer);
     if (this.players.size < MIN_PLAYERS_TO_START) {
       if (!force) return;
       if (this.players.size < 1) return;
@@ -169,6 +199,7 @@ class Match {
     this.lastTick = now;
 
     this.updateZone();
+    this.players.forEach((p) => { if (p.alive && p.isAI) this.driveAI(p, now); });
     this.players.forEach((p) => { if (p.alive) this.updatePlayer(p, dt); });
     this.resolveCollisions();
     this.applyZoneDamage(dt);
@@ -209,6 +240,61 @@ class Match {
         this.zoneTimer = next ? next.holdMs : 999999;
       }
     }
+  }
+
+  // Simple steer-toward-a-target bot: chase the nearest car while on foot,
+  // chase the nearest living rival once inside a car, and always run for the
+  // zone center if caught outside it. Re-picks its target every ~1.2s so it
+  // doesn't get stuck oscillating between two equally-close options.
+  driveAI(p, now) {
+    if (!p.aiRetargetAt || now >= p.aiRetargetAt) {
+      p.aiRetargetAt = now + 1200;
+      p.aiTarget = this.pickAITarget(p);
+    }
+
+    const outsideZone = Math.hypot(p.x - this.zone.cx, p.y - this.zone.cy) > this.zone.radius * 0.92;
+    const target = outsideZone ? { x: this.zone.cx, y: this.zone.cy } : p.aiTarget;
+
+    if (!target) {
+      p.input = { up: false, down: false, left: false, right: false };
+      return;
+    }
+
+    const dx = target.x - p.x;
+    const dy = target.y - p.y;
+    const dist = Math.hypot(dx, dy);
+    const desiredAngle = Math.atan2(dy, dx);
+    let diff = desiredAngle - p.angle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+
+    p.input = {
+      up: dist > 12,
+      down: false,
+      left: diff < -0.06,
+      right: diff > 0.06,
+    };
+  }
+
+  pickAITarget(p) {
+    if (!p.inCar) {
+      let best = null;
+      let bestDist = Infinity;
+      this.cars.forEach((c) => {
+        if (c.claimedBy) return;
+        const d = Math.hypot(c.x - p.x, c.y - p.y);
+        if (d < bestDist) { bestDist = d; best = c; }
+      });
+      return best ? { x: best.x, y: best.y } : null;
+    }
+    let best = null;
+    let bestDist = Infinity;
+    this.players.forEach((other) => {
+      if (other.id === p.id || !other.alive) return;
+      const d = Math.hypot(other.x - p.x, other.y - p.y);
+      if (d < bestDist) { bestDist = d; best = other; }
+    });
+    return best ? { x: best.x, y: best.y } : null;
   }
 
   updatePlayer(p, dt) {
@@ -403,6 +489,7 @@ class Match {
   destroy() {
     if (this.tickHandle) clearInterval(this.tickHandle);
     if (this.lobbyTimer) clearTimeout(this.lobbyTimer);
+    if (this.aiFillTimer) clearTimeout(this.aiFillTimer);
   }
 }
 
